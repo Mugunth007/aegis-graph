@@ -7,6 +7,7 @@ import { GraphVisualizer } from "@/components/GraphVisualizer";
 import { AgentThoughtStream, SwarmStep } from "@/components/AgentThoughtStream";
 import { BlastRadiusPanel } from "@/components/BlastRadiusPanel";
 import { CompanyBrainPanel } from "@/components/CompanyBrainPanel";
+import { CypherConsole } from "@/components/CypherConsole";
 import { RemediationModal } from "@/components/RemediationModal";
 import { 
   ShieldCheck, 
@@ -15,10 +16,10 @@ import {
   Database, 
   Flame, 
   GitBranch, 
-  ExternalLink, 
   Sparkles,
   Layers,
-  Activity
+  Activity,
+  Code
 } from "lucide-react";
 
 export default function Home() {
@@ -28,6 +29,7 @@ export default function Home() {
   const [isSwarmRunning, setIsSwarmRunning] = useState(false);
   const [incidentResolved, setIncidentResolved] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [prData, setPrData] = useState<any>(null);
   const [highlightedPath, setHighlightedPath] = useState<string[]>([
     "alert_504", "svc_apigateway", "svc_checkout", "svc_auth", "commit_broken", "dec_rfc104"
   ]);
@@ -59,6 +61,10 @@ export default function Home() {
       try {
         const data: SwarmStep = JSON.parse(event.data);
         setSwarmSteps((prev) => [...prev, data]);
+
+        if (data.data?.github_pull_request) {
+          setPrData(data.data.github_pull_request);
+        }
 
         if (data.step === 9) {
           setIsSwarmRunning(false);
@@ -172,7 +178,16 @@ export default function Home() {
               />
             </BentoCard>
 
-            {/* Bottom Row inside left column: Track 1 & Track 2 details */}
+            {/* Middle Row inside left column: Interactive Cypher Console */}
+            <BentoCard
+              title="Live FalkorDB openCypher Query Console"
+              subtitle="Execute real-time Cypher queries against enterprise_master graph"
+              icon={<Code className="w-4 h-4" />}
+            >
+              <CypherConsole />
+            </BentoCard>
+
+            {/* Bottom Row inside left column: Track 1 & Track 3 details */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Blast Radius (Track 1) */}
               <BentoCard
@@ -217,6 +232,7 @@ export default function Home() {
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         onMerged={() => setIncidentResolved(true)}
+        prData={prData}
       />
     </BackgroundGrid>
   );

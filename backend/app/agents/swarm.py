@@ -5,6 +5,9 @@ from app.agents.triage_agent import triage_agent
 from app.agents.blast_radius_agent import blast_radius_agent
 from app.agents.remediation_agent import remediation_agent
 from app.agents.company_brain_agent import company_brain_agent
+from app.agents.llm_client import llm_client
+from app.integrations.github_client import github_client
+from app.integrations.slack_client import slack_client
 from app.graph.seed_data import seed_enterprise_graph
 
 logger = logging.getLogger("aegis.swarm")
@@ -15,26 +18,18 @@ class IncidentSwarmCommander:
     Streams step-by-step cognitive reasoning to the UI.
     """
     def __init__(self):
-        # Ensure base data is ready
         seed_enterprise_graph()
 
     async def execute_autonomous_incident_workflow(self, alert_id: str = "ALERT-504-GATEWAY") -> AsyncGenerator[Dict[str, Any], None]:
-        """
-        Executes the full end-to-end incident lifecycle:
-        1. Triage (Track 1)
-        2. Blast Radius (Track 1)
-        3. Company Brain Lineage (Track 3)
-        4. Ephemeral Sandboxing & Remediation (Track 2)
-        Yields live updates for the UI.
-        """
+        provider = llm_client.active_provider
         yield {
             "step": 1,
             "agent": "SWARM_DISPATCHER",
             "status": "INCIDENT_DETECTED",
-            "message": f"🚨 High-severity alert received: {alert_id}. Mobilizing Aegis-Graph agent mesh...",
+            "message": f"🚨 High-severity alert received: {alert_id}. Mobilizing Aegis-Graph mesh (LLM: {provider})...",
             "progress": 10
         }
-        await asyncio.sleep(0.6)
+        await asyncio.sleep(0.5)
 
         # Step 2: Triage Agent Multi-hop Traversal
         yield {
@@ -45,27 +40,34 @@ class IncidentSwarmCommander:
             "progress": 30
         }
         triage_res = triage_agent.investigate_alert(alert_id)
-        await asyncio.sleep(0.8)
+        await asyncio.sleep(0.6)
+        
+        # Optional dynamic LLM analysis
+        dynamic_summary = await llm_client.generate_reasoning(
+            prompt=f"Explain root cause for alert {alert_id} where commit 7f9a2b introduced 60s IAM session ttl."
+        )
+
         yield {
             "step": 3,
             "agent": "TRIAGE_AGENT",
             "status": "ROOT_CAUSE_FOUND",
             "message": f"Root cause pinpointed: Commit {triage_res['root_cause_commit']['sha']} ('{triage_res['root_cause_commit']['message']}') authored by {triage_res['root_cause_commit']['author']}.",
             "data": triage_res,
+            "llm_insight": dynamic_summary,
             "progress": 45
         }
-        await asyncio.sleep(0.6)
+        await asyncio.sleep(0.5)
 
         # Step 3: Blast Radius Agent with Graph Algorithms
         yield {
             "step": 4,
             "agent": "BLAST_RADIUS_AGENT",
             "status": "RUNNING_GRAPHBLAS_ALGORITHMS",
-            "message": "Computing Betweenness Centrality & reverse dependency reachability...",
+            "message": "Computing Betweenness Centrality & reverse dependency reachability in FalkorDB...",
             "progress": 60
         }
         blast_res = blast_radius_agent.evaluate_impact("svc_auth")
-        await asyncio.sleep(0.8)
+        await asyncio.sleep(0.6)
         yield {
             "step": 5,
             "agent": "BLAST_RADIUS_AGENT",
@@ -74,7 +76,7 @@ class IncidentSwarmCommander:
             "data": blast_res,
             "progress": 70
         }
-        await asyncio.sleep(0.6)
+        await asyncio.sleep(0.5)
 
         # Step 4: Company Brain Decision Lineage
         yield {
@@ -85,7 +87,7 @@ class IncidentSwarmCommander:
             "progress": 80
         }
         brain_res = company_brain_agent.investigate_lineage_and_ownership("svc_auth")
-        await asyncio.sleep(0.8)
+        await asyncio.sleep(0.6)
         yield {
             "step": 7,
             "agent": "COMPANY_BRAIN_AGENT",
@@ -94,7 +96,7 @@ class IncidentSwarmCommander:
             "data": brain_res,
             "progress": 85
         }
-        await asyncio.sleep(0.6)
+        await asyncio.sleep(0.5)
 
         # Step 5: Ephemeral Sandboxing & Dynamic Runbook Execution
         yield {
@@ -105,12 +107,20 @@ class IncidentSwarmCommander:
             "progress": 92
         }
         remediation_res = remediation_agent.rehearse_and_remediate("INC-2026-901", "7f9a2b")
-        await asyncio.sleep(0.8)
+        await asyncio.sleep(0.6)
+
+        # Trigger real or simulated GitHub PR & Slack dispatch
+        real_pr = await github_client.create_rollback_pr("7f9a2b", "INC-2026-901")
+        await slack_client.send_incident_notification("INC-2026-901", "7f9a2b", blast_res["total_downstream_impacted"], real_pr["url"])
+        
+        remediation_res["github_pull_request"]["url"] = real_pr["url"]
+        remediation_res["github_pull_request"]["is_real"] = real_pr.get("real_pr_created", False)
+
         yield {
             "step": 9,
             "agent": "REMEDIATION_AGENT",
             "status": "REHEARSAL_PASSED_PR_READY",
-            "message": "Hotfix verified safe in FalkorDB sandbox. Automated Rollback Pull Request generated!",
+            "message": f"Hotfix verified safe in FalkorDB sandbox. PR #{real_pr['number']} ready at {real_pr['url']}!",
             "data": remediation_res,
             "progress": 100
         }
